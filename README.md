@@ -59,11 +59,11 @@ you can check the payout yourself.
 | Network | GenLayer StudioNet |
 | Contract | [`0xcb56f0D3D801664f940cA2380B42cfd22B426689`](https://explorer-studio.genlayer.com/address/0xcb56f0D3D801664f940cA2380B42cfd22B426689) |
 | Contract source | [`contracts/merit_drop.py`](contracts/merit_drop.py) |
-| Live state | 3 campaigns, 6 entries, 2 campaigns scored by the validators, 1.6 GEN allocated, 0.4 GEN claimed |
+| Live state | 4 campaigns, 8 entries, 3 campaigns scored by the validators, 2.6 GEN allocated, 0.9 GEN claimed |
 
-Two campaigns are already scored. Their entries carry real validator scores,
-the reasoning behind each one, and the share that score earned. One of those
-shares has been claimed, so the escrow figure has already moved. The third
+Three campaigns are already scored. Their entries carry real validator scores,
+the reasoning behind each one, and the share that score earned. Two of those
+shares have been claimed, so the escrow figure has already moved. The fourth
 campaign is open with two entries waiting, which is what the evaluation button
 on the live app is for.
 
