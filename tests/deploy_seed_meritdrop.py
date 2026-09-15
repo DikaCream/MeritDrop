@@ -1,8 +1,12 @@
 """Deploy a fresh MeritDrop and seed a demo board with real GEN.
 
-Creates three campaigns: two already scored by the validators (one with a
-claimed share) and one left open so the steward can press the button and
-watch the evaluation run on the live contract.
+Two campaigns are already scored by the validators (one with a claimed share),
+a third is left open so the steward can press the button and watch the
+evaluation run on the live contract, and a fourth records one round against a
+link that cannot resolve, which is where the retry path shows up on chain.
+
+Evaluation fetches every entry's proof link, so the evidence here is real files
+served from the project repository.
 
 Prints the new contract address for the frontend and the README.
 Run: .venv/bin/gltest --network studionet tests/deploy_seed_meritdrop.py -v -s
@@ -15,18 +19,35 @@ from gltest.assertions import tx_execution_succeeded
 
 GEN = 10**18
 
+RAW = "https://raw.githubusercontent.com/DikaCream/MeritDrop/main"
+EVIDENCE_README = f"{RAW}/README.md"
+EVIDENCE_SOURCE = f"{RAW}/contracts/merit_drop.py"
+EVIDENCE_DIRECT = f"{RAW}/tests/direct/test_merit_drop.py"
+EVIDENCE_INTEGRATION = f"{RAW}/tests/integration/test_merit_drop.py"
+
 CRITERIA_DOCS = (
-    "Ship a merged pull request that improves GenLayer documentation or translates "
-    "it. Link the pull request and describe in one sentence what a reader can now "
-    "do that they could not do before."
+    "The fetched evidence must be a readable file from the project repository. It "
+    "has to name the project and show what the budget pays for. A page that does "
+    "not mention the project, or that cannot be read, counts as a failure."
 )
-CRITERIA_FIX = (
-    "Ship a merged pull request that fixes a real bug in an open source GenLayer "
-    "project. Link the commit and the issue it closes."
+CRITERIA_TESTS = (
+    "The fetched evidence must be a readable Python test file from the project "
+    "repository. Accept it when the file defines test functions that exercise "
+    "the contract, which is what real test code looks like. A file that cannot "
+    "be read, or that shows no test functions at all, counts as a failure."
 )
-CRITERIA_SDK = (
-    "Publish a runnable example that shows a GenLayer SDK feature together with a "
-    "passing test. Link the repository or the pull request."
+CRITERIA_DEAD = (
+    "The fetched evidence must be a readable file from the project repository "
+    "describing the settlement rules. A page that cannot be read counts as a "
+    "failure."
+)
+
+# A reserved TLD, so this host cannot resolve and the fetch really fails.
+DEAD_URL = "https://no-such-proof-link-9f8a7b6c.invalid/work"
+CRITERIA_OPEN = (
+    "The fetched evidence must be a readable file from the project repository "
+    "that documents the contract's rules. A page that cannot be read counts as a "
+    "failure."
 )
 
 
@@ -52,6 +73,16 @@ def _submit(contract, who, cid, title, url, note):
     assert tx_execution_succeeded(receipt), receipt
 
 
+def _evaluate(contract, cid):
+    receipt = contract.evaluate(args=[cid]).transact(
+        wait_interval=10000, wait_retries=40
+    )
+    assert tx_execution_succeeded(receipt), receipt
+    c = contract.get_campaign(args=[cid]).call()
+    assert c["status"] == "SCORED", f"campaign {cid} did not close: {c}"
+    return c
+
+
 def test_deploy_and_seed():
     accounts = get_accounts()
     sponsor, one, two = accounts[0], accounts[1], accounts[2]
@@ -67,64 +98,86 @@ def test_deploy_and_seed():
         contract,
         one,
         1,
-        "Translate the validator guide",
-        "https://github.com/genlayer/docs/pull/482",
-        "Translated the whole validator guide and added a glossary. The pull request is merged.",
+        "Project README",
+        EVIDENCE_README,
+        "The README states what the project does and links the repository. It is the "
+        "page a new contributor reads first.",
     )
     _submit(
         contract,
         two,
         1,
-        "Rewrite the settlement walkthrough",
-        "https://github.com/genlayer/docs/pull/490",
-        "Rewrote the settlement walkthrough around a worked example. Merged.",
+        "Contract source with the allocation rules",
+        EVIDENCE_SOURCE,
+        "The contract source documents how the budget is held in escrow and split by "
+        "score, including the per-claim ceiling.",
     )
-    receipt = contract.evaluate(args=[1]).transact(wait_interval=10000, wait_retries=40)
-    assert tx_execution_succeeded(receipt), receipt
+    _evaluate(contract, 1)
     print("campaign 1 scored by the validators: OK")
 
     # ------------------------------------------------------------ campaign 2
-    _open(contract, "Bug fix bounty", CRITERIA_FIX, GEN, GEN * 4 // 10)
+    _open(contract, "Test coverage evidence", CRITERIA_TESTS, GEN * 3 // 2, GEN // 2)
     _submit(
         contract,
         one,
         2,
-        "Fix the retry counter in the JS client",
-        "https://github.com/genlayer/sdk-js/pull/41",
-        "An off-by-one in the retry counter meant the last attempt never fired. "
-        "Added a regression test in the same pull request.",
+        "Direct test suite",
+        EVIDENCE_DIRECT,
+        "The local VM suite asserts the window guards, the one-time evaluation, and "
+        "the payout ceiling.",
     )
     _submit(
         contract,
         two,
         2,
-        "Patch the address comparison in the explorer",
-        "https://github.com/genlayer/explorer/pull/18",
-        "The checksum comparison ignored case, so valid addresses were rejected. Fixed and merged.",
+        "StudioNet integration suite",
+        EVIDENCE_INTEGRATION,
+        "The integration suite asserts the same guards against the real consensus "
+        "path on StudioNet.",
     )
-    receipt = contract.evaluate(args=[2]).transact(wait_interval=10000, wait_retries=40)
-    assert tx_execution_succeeded(receipt), receipt
+    _evaluate(contract, 2)
     print("campaign 2 scored by the validators: OK")
 
     # ------------------------------------------------------------ campaign 3
-    _open(contract, "SDK example repository", CRITERIA_SDK, GEN * 3 // 2, GEN // 2)
+    _open(contract, "Cross-VM contract patterns", CRITERIA_OPEN, GEN, GEN // 2)
     _submit(
         contract,
         one,
         3,
-        "Deterministic test harness example",
-        "https://github.com/genlayer/examples/pull/23",
-        "A runnable example showing how to write and run a deterministic test against "
-        "a contract. CI is green.",
+        "Pattern: hold a budget in escrow",
+        EVIDENCE_SOURCE,
+        "The source shows the escrow accounting and the guarded withdrawal path.",
     )
     _submit(
         contract,
         two,
         3,
-        "Example: reading contract state from a script",
-        "https://github.com/genlayer/examples/pull/27",
-        "A small script that reads a deployed contract and prints its state, with a test.",
+        "Pattern: published criteria before entries",
+        EVIDENCE_README,
+        "The README explains why the criteria are frozen in the same transaction "
+        "that funds the campaign.",
     )
+
+    # ------------------------------------------------------------ campaign 4
+    # A link that cannot resolve. The round has to record the attempt, move no
+    # money, and leave the campaign open for a retry.
+    _open(contract, "Docs mirror", CRITERIA_DEAD, GEN, GEN * 4 // 10)
+    _submit(
+        contract,
+        one,
+        4,
+        "Mirrored copy of the rules",
+        DEAD_URL,
+        "A mirror of the settlement rules that should be reachable but is not.",
+    )
+    receipt = contract.evaluate(args=[4]).transact(
+        wait_interval=10000, wait_retries=40
+    )
+    assert tx_execution_succeeded(receipt), receipt
+    c4 = contract.get_campaign(args=[4]).call()
+    assert c4["status"] == "OPEN", "an unreadable link scored the campaign"
+    assert int(c4["unreadable_rounds"]) == 1
+    print("campaign 4: evidence unreadable, recorded an attempt and stayed open")
 
     # ------------------------------------------- claim one already-scored share
     entries = contract.list_entries(args=[1, 0, 10]).call()
@@ -146,16 +199,17 @@ def test_deploy_and_seed():
         f"allocated={int(stats['allocated']) / GEN:.4f} GEN "
         f"claimed={int(stats['claimed']) / GEN:.4f} GEN"
     )
-    for cid in (1, 2, 3):
+    for cid in (1, 2, 3, 4):
         c = contract.get_campaign(args=[cid]).call()
         print(
             f"campaign {cid}: {c['status']} budget={int(c['budget']) / GEN:.2f} "
             f"escrow={int(c['escrow']) / GEN:.4f} entries={int(c['entry_count'])} "
-            f"allocated={int(c['allocated']) / GEN:.4f}"
+            f"allocated={int(c['allocated']) / GEN:.4f} "
+            f"unreadable_rounds={int(c['unreadable_rounds'])}"
         )
         for e in contract.list_entries(args=[cid, 0, 10]).call():
             print(
-                f"   #{int(e['id'])} {e['status']} "
+                f"   #{int(e['id'])} {e['status']} evidence={e['evidence_status']} "
                 f"score={int(e['score_bp']) / 10000:.2f} "
                 f"alloc={int(e['allocation']) / GEN:.4f} claimed={e['claimed']}"
             )

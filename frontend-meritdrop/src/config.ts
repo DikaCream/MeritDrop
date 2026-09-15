@@ -6,7 +6,7 @@ export const RPC_URL = (import.meta.env.VITE_RPC_URL as string) || "";
 /** Deployed MeritDrop contract on GenLayer StudioNet. */
 export const CONTRACT_ADDRESS =
   (import.meta.env.VITE_CONTRACT_ADDRESS as string) ||
-  "0xcb56f0D3D801664f940cA2380B42cfd22B426689";
+  "0xfC0201eD1acBdBe3668f64476f762592494d75E9";
 
 export const STUDIONET_CHAIN_ID = 777;
 export const STUDIONET_CHAIN_ID_HEX = "0x309";

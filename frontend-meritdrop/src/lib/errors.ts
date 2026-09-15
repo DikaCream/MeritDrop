@@ -58,6 +58,12 @@ export function describeError(e: unknown): string {
     return "This campaign has reached its entry limit.";
   if (lower.includes("already been scored"))
     return "This campaign has already been scored. Scores are written once.";
+  if (lower.includes("proof_url must be a public http url"))
+    return "The proof link has to start with http, so the validators can open it.";
+  if (lower.includes("only the contributor can revise"))
+    return "Only the wallet that entered this can change its proof link.";
+  if (lower.includes("the evidence could not be read"))
+    return "The proof could not be read on the last attempt. Nothing was scored, and the retry window has to pass before another attempt.";
   if (lower.includes("no entries to score"))
     return "There is nothing to score yet. Wait for the first entries.";
   if (lower.includes("score every entry exactly once"))

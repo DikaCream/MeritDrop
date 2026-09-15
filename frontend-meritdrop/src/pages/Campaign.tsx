@@ -12,6 +12,11 @@ import {
   shortAddr,
 } from "../config";
 
+// Mirrors the contract. Three rounds may end with unreadable evidence, one hour
+// apart, before a campaign closes and an unreadable entry earns nothing.
+const MAX_EVIDENCE_ATTEMPTS = 3;
+const EVIDENCE_COOLDOWN_S = 3600;
+
 export function CampaignPage() {
   const { id } = useParams();
   const cid = Number(id);
@@ -88,6 +93,15 @@ export function CampaignPage() {
   const canReclaim =
     mine && open === false && !campaign.reclaimed && now >= campaign.closesAt && leftover > 0n;
 
+  // A proof nobody could read decides nothing, so say why the next attempt has
+  // to wait instead of letting the button revert.
+  const evidenceReadyAt =
+    campaign.unreadableRounds > 0 ? campaign.lastAttemptAt + EVIDENCE_COOLDOWN_S : 0;
+  const cooling = open && evidenceReadyAt > now;
+  const minutesToRetry = cooling
+    ? Math.max(1, Math.ceil((evidenceReadyAt - now) / 60))
+    : 0;
+
   const scored = entries.filter((e) => e.status === "SCORED");
   const above = scored.filter((e) => e.allocation > 0n);
   const claimedTotal = campaign.claimed;
@@ -105,6 +119,21 @@ export function CampaignPage() {
   async function onClaim(entry: Entry) {
     const ok = await run(`claim-${entry.id}`, (c) => c.claim(entry.id));
     if (ok) await load();
+  }
+
+  async function onRevise(
+    entry: Entry,
+    nextTitle: string,
+    nextUrl: string,
+    nextNote: string,
+  ) {
+    const ok = await run(`revise-${entry.id}`, (c) =>
+      c.reviseProof(entry.id, nextTitle, nextUrl, nextNote),
+    );
+    if (ok) {
+      setFormMsg("Link updated. The validators fetch this one from now on.");
+      await load();
+    }
   }
 
   async function onSubmitProof(ev: FormEvent) {
@@ -154,8 +183,16 @@ export function CampaignPage() {
         </div>
         <div className="camp-head-act">
           {open && campaign.entryCount > 0 && (
-            <button className="btn" onClick={onEvaluate} disabled={busy !== null}>
-              {busy === "evaluate" ? "Scoring…" : "Run the evaluation"}
+            <button
+              className="btn"
+              onClick={onEvaluate}
+              disabled={busy !== null || cooling}
+            >
+              {busy === "evaluate"
+                ? "Scoring…"
+                : cooling
+                  ? `Retry opens in ${minutesToRetry}m`
+                  : "Run the evaluation"}
             </button>
           )}
           {canReclaim && (
@@ -165,6 +202,19 @@ export function CampaignPage() {
           )}
         </div>
       </section>
+
+      {open && campaign.unreadableRounds > 0 && (
+        <p className="action-note">
+          {campaign.unreadableRounds === 1
+            ? "One round"
+            : `${campaign.unreadableRounds} rounds`}{" "}
+          could not read one or more proof links. A link nobody can read scores
+          nothing either way, so the campaign stayed open and no GEN moved.{" "}
+          {MAX_EVIDENCE_ATTEMPTS - campaign.unreadableRounds} more and it closes, at
+          which point an entry whose link stayed unreadable earns nothing.
+          {cooling && ` The retry window reopens ${formatDateTime(evidenceReadyAt)}.`}
+        </p>
+      )}
 
       <section className="panel">
         <header className="panel-head">
@@ -242,7 +292,14 @@ export function CampaignPage() {
                     entry={e}
                     myAddress={wallet.address}
                     onClaim={onClaim}
+                    onRevise={onRevise}
+                    canRevise={
+                      open &&
+                      inWindow &&
+                      e.contributor.toLowerCase() === (wallet.address || "").toLowerCase()
+                    }
                     busy={busy === `claim-${e.id}`}
+                    reviseBusy={busy === `revise-${e.id}`}
                   />
                 ))}
               </tbody>

@@ -13,6 +13,8 @@ export interface Campaign {
   entryCount: number;
   status: string;
   reclaimed: boolean;
+  unreadableRounds: number;
+  lastAttemptAt: number;
   createdAt: number;
 }
 
@@ -24,6 +26,7 @@ export interface Entry {
   proofUrl: string;
   note: string;
   status: string;
+  evidenceStatus: string;
   scoreBp: number;
   reasoning: string;
   allocation: bigint;
@@ -76,6 +79,8 @@ export function toCampaign(raw: any): Campaign {
     claimed: toBig(raw?.claimed),
     entryCount: toInt(raw?.entry_count),
     status: toStr(raw?.status, "OPEN"),
+    unreadableRounds: toInt(raw?.unreadable_rounds),
+    lastAttemptAt: toInt(raw?.last_attempt_at),
     reclaimed: Boolean(raw?.reclaimed),
     createdAt: toInt(raw?.created_at),
   };
@@ -90,6 +95,7 @@ export function toEntry(raw: any): Entry {
     proofUrl: toStr(raw?.proof_url),
     note: toStr(raw?.note),
     status: toStr(raw?.status, "OPEN"),
+    evidenceStatus: toStr(raw?.evidence_status),
     scoreBp: toInt(raw?.score_bp),
     reasoning: toStr(raw?.reasoning),
     allocation: toBig(raw?.allocation),

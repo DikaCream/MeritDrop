@@ -21,9 +21,18 @@ BUDGET = 2 * GEN
 CAP = GEN // 2
 
 CRITERIA = (
-    "Ship a merged pull request that fixes a documented bug. Link the commit "
-    "and say in one sentence what changed."
+    "The evidence must be a real, readable file from the project repository. It "
+    "has to mention the project name MeritDrop and show what the project does. A "
+    "page that does not mention the project, or that cannot be read, counts as a "
+    "failure."
 )
+
+# Real public files, so the validators fetch the artifact itself rather than a
+# description of it. A host that cannot resolve gives the unreadable case.
+RAW = "https://raw.githubusercontent.com/DikaCream/MeritDrop/main"
+EVIDENCE_README = f"{RAW}/README.md"
+EVIDENCE_SOURCE = f"{RAW}/contracts/merit_drop.py"
+DEAD_URL = "https://no-such-proof-link-9f8a7b6c.invalid/work"
 
 
 def _window():
@@ -70,9 +79,9 @@ def test_campaign_lifecycle_end_to_end():
         .submit_proof(
             args=[
                 1,
-                "Translate the validator guide",
-                "https://github.com/example/docs/pull/12",
-                "Translated the validator guide and the PR is merged.",
+                "Project README",
+                EVIDENCE_README,
+                "The repository README says what MeritDrop does and links the repo.",
             ]
         )
         .transact(wait_interval=10000, wait_retries=15)
@@ -84,9 +93,9 @@ def test_campaign_lifecycle_end_to_end():
         .submit_proof(
             args=[
                 1,
-                "Fix the retry bug",
-                "https://github.com/example/sdk/pull/48",
-                "Found an off-by-one in the retry counter and merged the fix with a regression test.",
+                "Contract source",
+                EVIDENCE_SOURCE,
+                "The contract source documents the escrow and allocation rules.",
             ]
         )
         .transact(wait_interval=10000, wait_retries=15)
@@ -106,6 +115,9 @@ def test_campaign_lifecycle_end_to_end():
 
     scored = contract.list_entries(args=[1, 0, 10]).call()
     assert all(e["status"] == "SCORED" for e in scored)
+    assert all(
+        e["evidence_status"] == "READ" for e in scored
+    ), "a readable link was reported as unreadable"
     total = 0
     for e in scored:
         bp = int(e["score_bp"])
@@ -151,9 +163,9 @@ def test_scoring_is_one_time_and_closes_entry():
         .submit_proof(
             args=[
                 1,
-                "Patch the parser",
-                "https://github.com/example/core/pull/7",
-                "Patched the parser and merged it with a test.",
+                "Project README",
+                EVIDENCE_README,
+                "The repository README says what MeritDrop does and links the repo.",
             ]
         )
         .transact(wait_interval=10000, wait_retries=15)
@@ -181,7 +193,7 @@ def test_scoring_is_one_time_and_closes_entry():
             args=[
                 1,
                 "Late entry",
-                "https://github.com/example/core/pull/9",
+                EVIDENCE_SOURCE,
                 "Submitted after the results were published.",
             ]
         )
@@ -189,3 +201,56 @@ def test_scoring_is_one_time_and_closes_entry():
     )
     assert not tx_execution_succeeded(receipt)
     assert len(contract.list_entries(args=[1, 0, 10]).call()) == 1
+
+
+@pytest.mark.integration
+def test_a_link_nobody_can_read_does_not_close_the_campaign():
+    """A proof nobody can fetch must not become a score of zero.
+
+    The validators really attempt this host and really fail, which is the only
+    honest way to prove the behaviour end to end: the campaign stays open, the
+    attempt is recorded, and not a single GEN moves.
+    """
+    accounts = get_accounts()
+    sponsor, one = accounts[0], accounts[1]
+    contract = _deploy(account=sponsor)
+    _open(contract, "Docs translation sprint")
+
+    receipt = (
+        contract.connect(one)
+        .submit_proof(
+            args=[1, "Gone", DEAD_URL, "The link should be reachable but is not."]
+        )
+        .transact(wait_interval=10000, wait_retries=15)
+    )
+    assert tx_execution_succeeded(receipt)
+
+    receipt = contract.evaluate(args=[1]).transact(
+        wait_interval=10000, wait_retries=40
+    )
+    assert tx_execution_succeeded(receipt)
+
+    campaign = contract.get_campaign(args=[1]).call()
+    assert campaign["status"] == "OPEN", "an unreadable link scored the campaign"
+    assert int(campaign["allocated"]) == 0
+    assert int(campaign["unreadable_rounds"]) == 1
+    assert int(campaign["last_attempt_at"]) > 0
+
+    entry = contract.get_entry(args=[1001]).call()
+    assert entry["status"] == "OPEN"
+    assert entry["evidence_status"] == "UNREADABLE"
+    assert int(entry["allocation"]) == 0
+
+    stats = contract.get_stats(args=[]).call()
+    assert int(stats["escrow"]) == BUDGET
+    assert int(stats["allocated"]) == 0
+    assert int(stats["claimed"]) == 0
+
+    # The retry window is real: the next attempt cannot run immediately.
+    receipt = contract.evaluate(args=[1]).transact(
+        wait_interval=10000, wait_retries=15
+    )
+    assert not tx_execution_succeeded(receipt)
+    after = contract.get_campaign(args=[1]).call()
+    assert int(after["unreadable_rounds"]) == 1
+    assert int(contract.get_stats(args=[]).call()["allocated"]) == 0

@@ -95,6 +95,16 @@ export class MeritDrop {
     return this.write("submit_proof", [campaignId, title, proofUrl, note]);
   }
 
+  /** Repair a dead link or a typo, while the campaign is still open. */
+  async reviseProof(
+    entryId: number,
+    title: string,
+    proofUrl: string,
+    note: string,
+  ): Promise<string> {
+    return this.write("revise_proof", [entryId, title, proofUrl, note]);
+  }
+
   /** Score a whole campaign through the validator-backed AI path. */
   async evaluate(campaignId: number): Promise<string> {
     return this.write("evaluate", [campaignId]);

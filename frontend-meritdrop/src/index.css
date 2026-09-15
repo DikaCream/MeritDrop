@@ -648,6 +648,17 @@ h4 {
   margin-top: 3px;
 }
 
+.proof-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 3px;
+}
+
+.proof-row .proof-link {
+  margin-top: 0;
+}
+
 .proof-link:hover {
   color: var(--blue);
 }
@@ -751,6 +762,27 @@ h4 {
 
 .stamp.no {
   color: var(--ink-faint);
+}
+
+/* Whether the validators could read the evidence. Not a score, so it gets no
+   score colour. */
+.stamp.read {
+  color: var(--blue);
+}
+
+.stamp.unreadable {
+  color: var(--amber);
+}
+
+.action-note {
+  margin: 0 0 22px;
+  padding: 13px 16px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--blue);
+  background: var(--paper-lift);
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: var(--ink-soft);
 }
 
 /* -------------------------------------------------------------- campaign */
@@ -897,6 +929,22 @@ h4 {
   align-items: center;
   gap: 14px;
   flex-wrap: wrap;
+}
+
+/* The repair form sits inside an expanded row, so it drops the panel padding. */
+.form.revise {
+  gap: 12px;
+  padding: 0;
+}
+
+.form.revise input,
+.form.revise textarea {
+  font-size: 13px;
+  padding: 8px 10px;
+}
+
+.form.revise label {
+  gap: 5px;
 }
 
 .form-msg {
