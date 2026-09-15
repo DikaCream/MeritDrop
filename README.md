@@ -7,6 +7,8 @@ before anything is written. The budget then splits by score, capped per claim,
 and each contributor withdraws their own share. Nobody types a number in by
 hand, and the sponsor can only take back what was never allocated.
 
+Live app: https://meritdrop.vercel.app
+
 ## Why it exists
 
 Most airdrops hand out tokens based on a snapshot, a lottery, or a list
