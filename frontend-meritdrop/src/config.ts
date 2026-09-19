@@ -6,7 +6,7 @@ export const RPC_URL = (import.meta.env.VITE_RPC_URL as string) || "";
 /** Deployed MeritDrop contract on GenLayer StudioNet. */
 export const CONTRACT_ADDRESS =
   (import.meta.env.VITE_CONTRACT_ADDRESS as string) ||
-  "0xfC0201eD1acBdBe3668f64476f762592494d75E9";
+  "0xc430c7dF330efc7e49664c127a9AdB291ffaB3ae";
 
 export const STUDIONET_CHAIN_ID = 777;
 export const STUDIONET_CHAIN_ID_HEX = "0x309";
@@ -20,6 +20,20 @@ export const GEN = 10n ** 18n;
 
 /** Merit bar, mirrored from the contract: 0.30 on a 0 to 10000 scale. */
 export const MERIT_BAR_BP = 3000;
+
+/**
+ * The five grades, mirrored from the contract. Every score is snapped to the
+ * nearest of 0, 0.25, 0.5, 0.75 or 1.0 before the validators have to agree on
+ * it, so two answers inside one grade are the same answer and pay the same.
+ */
+export const SCORE_GRADE_BP = 2500;
+export const SCORE_GRADE_STEP = "0.25";
+
+/** Seconds after the deadline during which an unreadable link can be repaired. */
+export const REPAIR_WINDOW_S = 86400;
+
+/** Rounds that may end without readable evidence before a campaign closes. */
+export const MAX_EVIDENCE_ATTEMPTS = 3;
 
 export function toBigInt(value: bigint | number | string): bigint {
   try {
@@ -79,6 +93,18 @@ export function formatDateTime(unix: number): string {
   return `${MONTHS[d.getUTCMonth()]} ${d.getUTCDate()}, ${d.getUTCFullYear()} ${pad(
     d.getUTCHours(),
   )}:${pad(d.getUTCMinutes())} UTC`;
+}
+
+/** "3d 4h" or "12m": a bare duration, for button labels. */
+export function formatRemaining(closesAt: number): string {
+  const diff = closesAt - Math.floor(Date.now() / 1000);
+  if (diff <= 0) return "now";
+  const days = Math.floor(diff / 86400);
+  const hours = Math.floor((diff % 86400) / 3600);
+  const minutes = Math.floor((diff % 3600) / 60);
+  if (days > 0) return `${days}d ${hours}h`;
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  return `${minutes}m`;
 }
 
 /** "3d 4h left" or "closed 2d ago". */

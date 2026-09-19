@@ -6,15 +6,19 @@ import { Campaign as CampaignType, Entry } from "../lib/types";
 import { describeError } from "../lib/errors";
 import {
   EXPLORER_ADDR,
+  MAX_EVIDENCE_ATTEMPTS,
+  REPAIR_WINDOW_S,
+  SCORE_GRADE_STEP,
   formatDateTime,
   formatGen,
+  formatRemaining,
   formatScore,
   shortAddr,
 } from "../config";
 
-// Mirrors the contract. Three rounds may end with unreadable evidence, one hour
-// apart, before a campaign closes and an unreadable entry earns nothing.
-const MAX_EVIDENCE_ATTEMPTS = 3;
+// Mirrors the contract. Rounds that end without readable evidence are spaced an
+// hour apart, a campaign closes after three of them, and a link the validators
+// could not read can still be repaired for one day after the deadline.
 const EVIDENCE_COOLDOWN_S = 3600;
 
 export function CampaignPage() {
@@ -84,6 +88,21 @@ export function CampaignPage() {
   const now = Math.floor(Date.now() / 1000);
   const open = campaign.status === "OPEN";
   const inWindow = now >= campaign.opensAt && now <= campaign.closesAt;
+  // The window fixes the entry set, so the contract scores only after it shuts,
+  // and only a link already reported as unreadable may be repaired afterwards.
+  const deadlinePassed = now > campaign.closesAt;
+  const repairUntil = campaign.closesAt + REPAIR_WINDOW_S;
+  const repairOpen = deadlinePassed && now <= repairUntil;
+  const attemptsLeft = Math.max(0, MAX_EVIDENCE_ATTEMPTS - campaign.unreadableRounds);
+  const canRepairEntry = (e: Entry) =>
+    open &&
+    !!wallet.address &&
+    e.contributor.toLowerCase() === wallet.address.toLowerCase() &&
+    (inWindow ||
+      (repairOpen &&
+        e.evidenceStatus === "UNREADABLE" &&
+        campaign.unreadableRounds > 0 &&
+        attemptsLeft > 0));
   const mine = !!wallet.address &&
     wallet.address.toLowerCase() === campaign.sponsor.toLowerCase();
   const alreadyIn = entries.some(
@@ -166,7 +185,11 @@ export function CampaignPage() {
       <section className="camp-head">
         <div>
           <p className="eyebrow">
-            {open ? "Accepting entries" : "Scored by the validators"}
+            {open
+              ? deadlinePassed
+                ? "Closed for entries · ready to score"
+                : "Accepting entries"
+              : "Scored by the validators"}
           </p>
           <h1>{campaign.title}</h1>
           <p className="meta-line">
@@ -186,13 +209,20 @@ export function CampaignPage() {
             <button
               className="btn"
               onClick={onEvaluate}
-              disabled={busy !== null || cooling}
+              disabled={busy !== null || cooling || !deadlinePassed}
+              title={
+                deadlinePassed
+                  ? "The window is shut, so the entry set is fixed"
+                  : "Scoring opens once the deadline passes"
+              }
             >
               {busy === "evaluate"
                 ? "Scoring…"
-                : cooling
-                  ? `Retry opens in ${minutesToRetry}m`
-                  : "Run the evaluation"}
+                : !deadlinePassed
+                  ? `Scoring opens in ${formatRemaining(campaign.closesAt)}`
+                  : cooling
+                    ? `Retry opens in ${minutesToRetry}m`
+                    : "Run the evaluation"}
             </button>
           )}
           {canReclaim && (
@@ -203,15 +233,23 @@ export function CampaignPage() {
         </div>
       </section>
 
+      {open && !deadlinePassed && (
+        <p className="action-note">
+          Scoring is locked while the window is open, so the entry set cannot grow
+          after a payout is decided. It opens in {formatRemaining(campaign.closesAt)}.
+        </p>
+      )}
+
       {open && campaign.unreadableRounds > 0 && (
         <p className="action-note">
           {campaign.unreadableRounds === 1
             ? "One round"
             : `${campaign.unreadableRounds} rounds`}{" "}
           could not read one or more proof links. A link nobody can read scores
-          nothing either way, so the campaign stayed open and no GEN moved.{" "}
-          {MAX_EVIDENCE_ATTEMPTS - campaign.unreadableRounds} more and it closes, at
-          which point an entry whose link stayed unreadable earns nothing.
+          nothing either way, so nothing moved and the campaign stayed open.{" "}
+          {repairOpen && attemptsLeft > 0
+            ? `The contributor can still repair it until ${formatDateTime(repairUntil)}.`
+            : `${attemptsLeft} more failed round(s) and it closes, at which point an entry whose link stayed unreadable earns nothing.`}
           {cooling && ` The retry window reopens ${formatDateTime(evidenceReadyAt)}.`}
         </p>
       )}
@@ -221,7 +259,11 @@ export function CampaignPage() {
           <h2>
             <span className="fig">FIG. 02</span> Criteria
           </h2>
-          <p className="panel-note">The same text is handed to every validator.</p>
+          <p className="panel-note">
+            The same text is handed to every validator. Each score is snapped to the
+            nearest {SCORE_GRADE_STEP} grade, and both validators have to name the same
+            grade before any of it pays out.
+          </p>
         </header>
         <p className="criteria">{campaign.criteria}</p>
       </section>
@@ -293,11 +335,7 @@ export function CampaignPage() {
                     myAddress={wallet.address}
                     onClaim={onClaim}
                     onRevise={onRevise}
-                    canRevise={
-                      open &&
-                      inWindow &&
-                      e.contributor.toLowerCase() === (wallet.address || "").toLowerCase()
-                    }
+                    canRevise={canRepairEntry(e)}
                     busy={busy === `claim-${e.id}`}
                     reviseBusy={busy === `revise-${e.id}`}
                   />
@@ -321,7 +359,9 @@ export function CampaignPage() {
             <p className="dim pad">Connect a wallet to enter this campaign.</p>
           ) : !inWindow ? (
             <p className="dim pad">
-              The submission window has closed. Wait for the evaluation.
+              The submission window has closed, so no new entry can join. If you
+              already entered and the validators could not read your link, its row
+              above is where you repair it.
             </p>
           ) : alreadyIn ? (
             <p className="dim pad">

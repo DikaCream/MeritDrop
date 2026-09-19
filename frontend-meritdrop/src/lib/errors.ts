@@ -50,6 +50,17 @@ export function describeError(e: unknown): string {
     return "This campaign is closed. Entries stop as soon as it has been scored.";
   if (lower.includes("has not opened yet"))
     return "The submission window has not opened yet.";
+  // Checked before the generic window message, which these both contain.
+  if (lower.includes("repair window has closed"))
+    return "The repair window has closed. A link that stayed unreadable can no longer be changed.";
+  if (lower.includes("could not be read can be repaired now"))
+    return "After the deadline only a link the validators could not read can be repaired.";
+  if (lower.includes("no round has failed to read"))
+    return "The validators have not reported this link as unreadable, so there is nothing to repair.";
+  if (lower.includes("evidence attempts are spent"))
+    return "The evidence attempts for this campaign are spent.";
+  if (lower.includes("deadline has not passed"))
+    return "The campaign is still taking entries. Scoring opens the moment the deadline passes.";
   if (lower.includes("window has closed"))
     return "The submission window for this campaign has closed.";
   if (lower.includes("already entered this campaign"))

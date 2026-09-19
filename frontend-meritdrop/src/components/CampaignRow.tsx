@@ -4,6 +4,7 @@ import { formatCountdown, formatDate, formatGen, shortAddr } from "../config";
 
 export function CampaignRow({ campaign }: { campaign: Campaign }) {
   const closed = campaign.status !== "OPEN";
+  const deadlinePassed = Math.floor(Date.now() / 1000) > campaign.closesAt;
   const fill = formatGen(campaign.allocated);
 
   return (
@@ -26,6 +27,8 @@ export function CampaignRow({ campaign }: { campaign: Campaign }) {
       <td className="col-act">
         {closed ? (
           <span className="stamp ok">scored</span>
+        ) : deadlinePassed ? (
+          <span className="stamp live">ready to score</span>
         ) : (
           <span className="stamp live">open</span>
         )}

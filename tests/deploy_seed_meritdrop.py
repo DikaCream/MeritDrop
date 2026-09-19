@@ -1,9 +1,12 @@
 """Deploy a fresh MeritDrop and seed a demo board with real GEN.
 
-Two campaigns are already scored by the validators (one with a claimed share),
-a third is left open so the steward can press the button and watch the
-evaluation run on the live contract, and a fourth records one round against a
-link that cannot resolve, which is where the retry path shows up on chain.
+Every campaign is opened with one shared, short deadline. Entries land inside
+that window, then the run waits the deadline out, because the contract refuses
+to score a campaign before its deadline. Two campaigns are then scored (one
+with a claimed share), a third is left open with its deadline already behind it
+so the steward can press the button and watch the evaluation run on the live
+contract, and a fourth records one round against a link that cannot resolve,
+which is where the post-deadline repair path shows up on chain.
 
 Evaluation fetches every entry's proof link, so the evidence here is real files
 served from the project repository.
@@ -51,16 +54,29 @@ CRITERIA_OPEN = (
 )
 
 
-def _window(days=30):
+# The window has to stay open long enough for every open and submit below, and
+# then the run waits for the deadline because scoring is gated behind it.
+WINDOW_LEAD = 200
+DEADLINE_PAD = 20
+
+
+def _window():
     now = int(time.time())
-    return now - 86400, now + days * 86400
+    return now - 86400, now + WINDOW_LEAD
 
 
-def _open(contract, title, criteria, budget, cap):
-    opens_at, closes_at = _window()
+def _wait_for_deadline(closes_at):
+    """The chain owns the clock, so wait the deadline out instead of faking it."""
+    remaining = closes_at + DEADLINE_PAD - time.time()
+    if remaining > 0:
+        print(f"waiting {remaining:.0f}s for the deadline to pass...")
+        time.sleep(remaining)
+
+
+def _open(contract, title, criteria, budget, cap, opens_at, closes_at):
     receipt = contract.open_campaign(
         args=[title, criteria, opens_at, closes_at, cap]
-    ).transact(value=budget, wait_interval=10000, wait_retries=20)
+    ).transact(value=budget, wait_interval=5000, wait_retries=30)
     assert tx_execution_succeeded(receipt), receipt
 
 
@@ -68,14 +84,14 @@ def _submit(contract, who, cid, title, url, note):
     receipt = (
         contract.connect(who)
         .submit_proof(args=[cid, title, url, note])
-        .transact(wait_interval=10000, wait_retries=20)
+        .transact(wait_interval=5000, wait_retries=30)
     )
     assert tx_execution_succeeded(receipt), receipt
 
 
 def _evaluate(contract, cid):
     receipt = contract.evaluate(args=[cid]).transact(
-        wait_interval=10000, wait_retries=40
+        wait_interval=5000, wait_retries=50
     )
     assert tx_execution_succeeded(receipt), receipt
     c = contract.get_campaign(args=[cid]).call()
@@ -92,8 +108,20 @@ def test_deploy_and_seed():
     address = contract.address
     print(f"\nNEW CONTRACT ADDRESS: {address}\n")
 
+    # One shared window for every campaign, so the run waits the deadline out
+    # exactly once. The contract refuses to score until it has passed.
+    opens_at, closes_at = _window()
+
     # ------------------------------------------------------------ campaign 1
-    _open(contract, "Documentation translation sprint", CRITERIA_DOCS, GEN, GEN * 4 // 10)
+    _open(
+        contract,
+        "Documentation translation sprint",
+        CRITERIA_DOCS,
+        GEN,
+        GEN * 4 // 10,
+        opens_at,
+        closes_at,
+    )
     _submit(
         contract,
         one,
@@ -112,11 +140,17 @@ def test_deploy_and_seed():
         "The contract source documents how the budget is held in escrow and split by "
         "score, including the per-claim ceiling.",
     )
-    _evaluate(contract, 1)
-    print("campaign 1 scored by the validators: OK")
 
     # ------------------------------------------------------------ campaign 2
-    _open(contract, "Test coverage evidence", CRITERIA_TESTS, GEN * 3 // 2, GEN // 2)
+    _open(
+        contract,
+        "Test coverage evidence",
+        CRITERIA_TESTS,
+        GEN * 3 // 2,
+        GEN // 2,
+        opens_at,
+        closes_at,
+    )
     _submit(
         contract,
         one,
@@ -135,11 +169,16 @@ def test_deploy_and_seed():
         "The integration suite asserts the same guards against the real consensus "
         "path on StudioNet.",
     )
-    _evaluate(contract, 2)
-    print("campaign 2 scored by the validators: OK")
-
     # ------------------------------------------------------------ campaign 3
-    _open(contract, "Cross-VM contract patterns", CRITERIA_OPEN, GEN, GEN // 2)
+    _open(
+        contract,
+        "Cross-VM contract patterns",
+        CRITERIA_OPEN,
+        GEN,
+        GEN // 2,
+        opens_at,
+        closes_at,
+    )
     _submit(
         contract,
         one,
@@ -160,8 +199,16 @@ def test_deploy_and_seed():
 
     # ------------------------------------------------------------ campaign 4
     # A link that cannot resolve. The round has to record the attempt, move no
-    # money, and leave the campaign open for a retry.
-    _open(contract, "Docs mirror", CRITERIA_DEAD, GEN, GEN * 4 // 10)
+    # money, and leave the campaign open inside its repair window.
+    _open(
+        contract,
+        "Docs mirror",
+        CRITERIA_DEAD,
+        GEN,
+        GEN * 4 // 10,
+        opens_at,
+        closes_at,
+    )
     _submit(
         contract,
         one,
@@ -170,8 +217,26 @@ def test_deploy_and_seed():
         DEAD_URL,
         "A mirror of the settlement rules that should be reachable but is not.",
     )
+
+    # The gate is on the live contract too: scoring before the deadline fails.
+    receipt = contract.evaluate(args=[1]).transact(
+        wait_interval=5000, wait_retries=20
+    )
+    assert not tx_execution_succeeded(receipt), (
+        "a campaign was scored before its deadline"
+    )
+    assert contract.get_campaign(args=[1]).call()["status"] == "OPEN"
+    print("campaign 1: scoring refused while the window was still open")
+
+    _wait_for_deadline(closes_at)
+
+    _evaluate(contract, 1)
+    print("campaign 1 scored by the validators: OK")
+    _evaluate(contract, 2)
+    print("campaign 2 scored by the validators: OK")
+
     receipt = contract.evaluate(args=[4]).transact(
-        wait_interval=10000, wait_retries=40
+        wait_interval=5000, wait_retries=50
     )
     assert tx_execution_succeeded(receipt), receipt
     c4 = contract.get_campaign(args=[4]).call()
@@ -187,7 +252,7 @@ def test_deploy_and_seed():
         receipt = (
             contract.connect(who)
             .claim(args=[int(ranked[0]["id"])])
-            .transact(wait_interval=10000, wait_retries=20)
+            .transact(wait_interval=5000, wait_retries=30)
         )
         assert tx_execution_succeeded(receipt), receipt
         print(f"claim on #{int(ranked[0]['id'])}: OK")

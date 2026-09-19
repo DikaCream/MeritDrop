@@ -35,9 +35,23 @@ EVIDENCE_SOURCE = f"{RAW}/contracts/merit_drop.py"
 DEAD_URL = "https://no-such-proof-link-9f8a7b6c.invalid/work"
 
 
-def _window():
+# Scoring is gated behind the deadline, and a live chain's clock cannot be
+# fast-forwarded, so each campaign here opens with a short window, takes its
+# entries inside it, and waits the deadline out before asking for a score.
+WINDOW_LEAD = 90  # seconds the submission window stays open
+DEADLINE_PAD = 15  # how far past the deadline to wait before scoring
+
+
+def _window(lead=WINDOW_LEAD):
     now = int(time.time())
-    return now - 86400, now + 30 * 86400
+    return now - 86400, now + lead
+
+
+def _await_deadline(closes_at):
+    """Wait for the chain's deadline to pass rather than assuming it has."""
+    remaining = closes_at + DEADLINE_PAD - time.time()
+    if remaining > 0:
+        time.sleep(remaining)
 
 
 def _deploy(account):
@@ -52,11 +66,13 @@ def _deploy(account):
 
 
 def _open(contract, title):
+    """Open a campaign and return the deadline it will close at."""
     opens_at, closes_at = _window()
     receipt = contract.open_campaign(
         args=[title, CRITERIA, opens_at, closes_at, CAP],
-    ).transact(value=BUDGET, wait_interval=10000, wait_retries=15)
+    ).transact(value=BUDGET, wait_interval=5000, wait_retries=20)
     assert tx_execution_succeeded(receipt)
+    return closes_at
 
 
 @pytest.mark.integration
@@ -65,12 +81,13 @@ def test_campaign_lifecycle_end_to_end():
     sponsor, one, two = accounts[0], accounts[1], accounts[2]
     contract = _deploy(account=sponsor)
 
-    _open(contract, "Docs translation sprint")
+    closes_at = _open(contract, "Docs translation sprint")
 
     campaign = contract.get_campaign(args=[1]).call()
     assert campaign["status"] == "OPEN"
     assert int(campaign["budget"]) == BUDGET
     assert int(campaign["escrow"]) == BUDGET
+    assert int(campaign["closes_at"]) == closes_at
     assert campaign["sponsor"].lower() == sponsor.address.lower()
 
     # Two contributors enter before the window closes.
@@ -107,9 +124,23 @@ def test_campaign_lifecycle_end_to_end():
     assert all(e["status"] == "OPEN" for e in entries)
     assert [int(e["id"]) for e in entries] == [1001, 1002]
 
+    # The gate is real here, not just in the mocked VM: while the window is
+    # still open, the same call the steward would make is refused.
+    receipt = contract.evaluate(args=[1]).transact(
+        wait_interval=5000, wait_retries=20
+    )
+    assert not tx_execution_succeeded(receipt)
+    campaign = contract.get_campaign(args=[1]).call()
+    assert campaign["status"] == "OPEN"
+    assert int(campaign["allocated"]) == 0
+    entries = contract.list_entries(args=[1, 0, 10]).call()
+    assert all(e["status"] == "OPEN" for e in entries)
+
+    _await_deadline(closes_at)
+
     # Score the whole campaign through the validator-backed AI path.
     receipt = contract.evaluate(args=[1]).transact(
-        wait_interval=10000, wait_retries=40
+        wait_interval=5000, wait_retries=40
     )
     assert tx_execution_succeeded(receipt)
 
@@ -156,7 +187,7 @@ def test_scoring_is_one_time_and_closes_entry():
     sponsor, one = accounts[0], accounts[1]
     contract = _deploy(account=sponsor)
 
-    _open(contract, "Bug fix bounty")
+    closes_at = _open(contract, "Bug fix bounty")
 
     receipt = (
         contract.connect(one)
@@ -168,19 +199,21 @@ def test_scoring_is_one_time_and_closes_entry():
                 "The repository README says what MeritDrop does and links the repo.",
             ]
         )
-        .transact(wait_interval=10000, wait_retries=15)
+        .transact(wait_interval=5000, wait_retries=20)
     )
     assert tx_execution_succeeded(receipt)
 
+    _await_deadline(closes_at)
+
     receipt = contract.evaluate(args=[1]).transact(
-        wait_interval=10000, wait_retries=40
+        wait_interval=5000, wait_retries=40
     )
     assert tx_execution_succeeded(receipt)
 
     # A second evaluation must not double-allocate.
     before = contract.get_campaign(args=[1]).call()
     receipt = contract.evaluate(args=[1]).transact(
-        wait_interval=10000, wait_retries=15
+        wait_interval=5000, wait_retries=20
     )
     assert not tx_execution_succeeded(receipt)
     after = contract.get_campaign(args=[1]).call()
@@ -197,7 +230,7 @@ def test_scoring_is_one_time_and_closes_entry():
                 "Submitted after the results were published.",
             ]
         )
-        .transact(wait_interval=10000, wait_retries=15)
+        .transact(wait_interval=5000, wait_retries=20)
     )
     assert not tx_execution_succeeded(receipt)
     assert len(contract.list_entries(args=[1, 0, 10]).call()) == 1
@@ -214,19 +247,21 @@ def test_a_link_nobody_can_read_does_not_close_the_campaign():
     accounts = get_accounts()
     sponsor, one = accounts[0], accounts[1]
     contract = _deploy(account=sponsor)
-    _open(contract, "Docs translation sprint")
+    closes_at = _open(contract, "Docs translation sprint")
 
     receipt = (
         contract.connect(one)
         .submit_proof(
             args=[1, "Gone", DEAD_URL, "The link should be reachable but is not."]
         )
-        .transact(wait_interval=10000, wait_retries=15)
+        .transact(wait_interval=5000, wait_retries=20)
     )
     assert tx_execution_succeeded(receipt)
 
+    _await_deadline(closes_at)
+
     receipt = contract.evaluate(args=[1]).transact(
-        wait_interval=10000, wait_retries=40
+        wait_interval=5000, wait_retries=40
     )
     assert tx_execution_succeeded(receipt)
 
@@ -248,7 +283,7 @@ def test_a_link_nobody_can_read_does_not_close_the_campaign():
 
     # The retry window is real: the next attempt cannot run immediately.
     receipt = contract.evaluate(args=[1]).transact(
-        wait_interval=10000, wait_retries=15
+        wait_interval=5000, wait_retries=20
     )
     assert not tx_execution_succeeded(receipt)
     after = contract.get_campaign(args=[1]).call()

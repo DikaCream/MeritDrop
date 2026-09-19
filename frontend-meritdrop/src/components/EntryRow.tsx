@@ -40,8 +40,9 @@ function ReviseForm({
     <div>
       <h4>Fix this entry</h4>
       <p className="hint">
-        Everything here is final once the campaign is scored, so a dead link has to be
-        repaired before the evaluation runs.
+        Inside the window you can change anything. After the deadline only a link the
+        validators reported as unreadable can be repaired, and only until the repair
+        window closes. Once the campaign is scored the record is final.
       </p>
       <form
         className="form revise"
@@ -167,9 +168,9 @@ export function EntryRow({
                 {evidence === "UNREADABLE" && !scored && (
                   <p className="hint">
                     The validators could not read this link on the last attempt. Nothing
-                    was scored and no money moved. If the retries run out with the link
-                    still dark, the entry earns nothing, so a dead link is worth
-                    repairing.
+                    was scored and no money moved. If the attempts or the repair window
+                    run out with the link still dark, the entry earns nothing, so a dead
+                    link is worth repairing while it can be.
                   </p>
                 )}
               </div>

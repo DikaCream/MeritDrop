@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { MERIT_BAR_BP } from "../config";
+import { SCORE_GRADE_STEP } from "../config";
 
 export function Guide() {
   return (
@@ -36,8 +36,10 @@ export function Guide() {
           <h3>Contributors submit proof</h3>
           <p>
             One entry per wallet per campaign, inside the window. An entry is a title,
-            a link to the work, and a note explaining what the link shows. That note
-            is what the validators read, so vague entries score badly.
+            a link to the work, and a note explaining what the link shows. The
+            validators fetch that link themselves and judge the artifact, not the
+            description of it. The note is a claim: a link that cannot be read earns
+            nothing, and a confident note over thin evidence scores badly.
           </p>
         </article>
 
@@ -45,10 +47,14 @@ export function Guide() {
           <span className="step-num">03</span>
           <h3>Validators score every entry</h3>
           <p>
-            Anyone can press the button. The contract is not the judge: each validator
-            runs the same prompt over the same entries, and the round only stands when
-            the answers agree on which entries clear the {MERIT_BAR_BP / 10000} merit
-            bar. The reasoning is written to the chain with the score.
+            The button only works once the deadline has passed, because the window is
+            what fixes the list of entries. The contract is not the judge: each
+            validator runs the same prompt over the same entries, and the round only
+            stands when the answers land on the same grade for every entry. The grades
+            are 0, {SCORE_GRADE_STEP}, 0.5, 0.75 and 1.0, and every score is snapped to
+            the nearest one before it is compared, so a small difference in judgement
+            collapses onto one figure while a real disagreement fails the round. The
+            reasoning is written to the chain next to the grade.
           </p>
         </article>
 
@@ -56,9 +62,10 @@ export function Guide() {
           <span className="step-num">04</span>
           <h3>The budget splits by score</h3>
           <p>
-            Each entry above the bar takes a share proportional to its score, capped by
-            the per-claim ceiling. Contributors then claim their own share. Anything
-            the evaluators never allocated goes back to the sponsor.
+            Each entry at or above the 0.30 bar takes a share proportional to its grade,
+            capped by the per-claim ceiling. On this scale the paying grades are 0.5 and
+            up. Contributors then claim their own share, and anything the evaluators
+            never allocated goes back to the sponsor.
           </p>
         </article>
       </section>
@@ -78,8 +85,18 @@ export function Guide() {
             validators, so no caller can set one.
           </li>
           <li>
-            A second scoring pass. A campaign is scored once, so a share cannot be
-            allocated twice.
+            Scoring before the deadline, or a second scoring pass. The window fixes
+            the entry set and a campaign is scored once, so a share cannot be decided
+            early or allocated twice.
+          </li>
+          <li>
+            A payout from scores nobody agreed on. Both validators have to report the
+            same grade for every entry before any money moves.
+          </li>
+          <li>
+            Swapping in a different link after the deadline. Only an entry whose link
+            the validators reported as unreadable may be repaired, and only until the
+            repair window closes.
           </li>
           <li>
             An entry the validators skipped, or a score for an entry that was never
